@@ -52,6 +52,12 @@ module DB
       create_transaction
     end
 
+    # Override #check to provide a health check method. #check should raise a
+    # PoolResourceLost(T) error such as DB::ConnectionLost when a connection
+    # has been disconnected or is no longer available.
+    protected def check : Nil
+    end
+
     protected def create_transaction : Transaction
       TopLevelTransaction.new(self)
     end

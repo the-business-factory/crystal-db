@@ -220,4 +220,85 @@ describe DB::Pool do
 
     all.size.should eq 4
   end
+
+  it "should close idle resources after a health check fails" do
+    DummyDriver::DummyConnection.clear_connections
+    DB.open "dummy://localhost:1027?initial_pool_size=1&max_pool_size=1&reaping_delay=0.0&reaping_frequency=0.01" do |db|
+      cnn = db.checkout.as(DummyDriver::DummyConnection)
+      cnn.closed?.should be_false
+      cnn.release
+      db.pool.is_available?(cnn).should be_true
+      db.pool.is_in_pool?(cnn).should be_true
+      cnn.disconnect!
+      sleep(0.02)
+      db.pool.is_available?(cnn).should be_false
+      db.pool.is_in_pool?(cnn).should be_false
+    end
+  end
+
+  it "should not close unhealthy resources until after the reaping_delay" do
+    DummyDriver::DummyConnection.clear_connections
+    DB.open "dummy://localhost:1027?initial_pool_size=1&max_pool_size=1&reaping_delay=0.05&reaping_frequency=0.01" do |db|
+      cnn = db.checkout.as(DummyDriver::DummyConnection)
+      cnn.closed?.should be_false
+      cnn.release
+      db.pool.is_available?(cnn).should be_true
+      db.pool.is_in_pool?(cnn).should be_true
+      cnn.disconnect!
+      sleep(0.025)
+      db.pool.is_available?(cnn).should be_true
+      db.pool.is_in_pool?(cnn).should be_true
+      sleep(0.125)
+      db.pool.is_available?(cnn).should be_false
+      db.pool.is_in_pool?(cnn).should be_false
+    end
+  end
+
+  it "should run health checks consecutively" do
+    DummyDriver::DummyConnection.clear_connections
+    DB.open "dummy://localhost:1027?initial_pool_size=2&max_pool_size=2&max_idle_pool_size=2&reaping_delay=0.0&reaping_frequency=0.01" do |db|
+      cnn = db.checkout.as(DummyDriver::DummyConnection)
+      cnn.simulated_health_check_delay = 0.075
+      cnn2 = db.checkout.as(DummyDriver::DummyConnection)
+      cnn.release
+      cnn2.release
+      cnn.disconnect!
+      cnn2.disconnect!
+      db.pool.is_available?(cnn).should be_true
+      db.pool.is_in_pool?(cnn).should be_true
+      db.pool.is_available?(cnn2).should be_true
+      db.pool.is_in_pool?(cnn2).should be_true
+      sleep(0.02)
+      db.pool.is_available?(cnn).should be_false
+      db.pool.is_in_pool?(cnn).should be_false
+      db.pool.is_available?(cnn2).should be_true
+      db.pool.is_in_pool?(cnn2).should be_true
+      sleep(0.02)
+      db.pool.is_available?(cnn2).should be_true
+      db.pool.is_in_pool?(cnn2).should be_true
+      sleep(0.15)
+      db.pool.is_available?(cnn2).should be_false
+      db.pool.is_in_pool?(cnn2).should be_false
+    end
+  end
+
+  it "should not close open resources" do
+    DummyDriver::DummyConnection.clear_connections
+    DB.open "dummy://localhost:1027?initial_pool_size=1&max_pool_size=2&reaping_delay=0.0&reaping_frequency=0.01" do |db|
+      cnn = db.checkout.as(DummyDriver::DummyConnection)
+      cnn2 = db.checkout.as(DummyDriver::DummyConnection)
+      cnn.release
+      cnn.disconnect!
+      cnn2.disconnect!
+      db.pool.is_available?(cnn).should be_true
+      db.pool.is_in_pool?(cnn).should be_true
+      db.pool.is_available?(cnn2).should be_false
+      db.pool.is_in_pool?(cnn2).should be_true
+      sleep(0.02)
+      db.pool.is_available?(cnn).should be_false
+      db.pool.is_in_pool?(cnn).should be_false
+      db.pool.is_available?(cnn2).should be_false
+      db.pool.is_in_pool?(cnn2).should be_true
+    end
+  end
 end
